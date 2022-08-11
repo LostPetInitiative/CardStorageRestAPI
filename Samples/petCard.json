@@ -1,0 +1,22 @@
+{
+  "CardType": "found",
+  "ContactInfo": {
+    "Name":  "The one who published a card",
+    "Comment": "This is a comment",
+    "Tel": [ "+790312355467" ],
+    "Website": [ "vk.com/id353143234" ],
+    "Email": [ "a@t.ru" ]
+  },
+  "EventTime": "2020-01-01",
+  "EventTimeProvenance":  null,
+  "CardCreationTime": "2020-02-01T17:34:53",
+  "unexistentFild": 123,
+  "Location": {
+    "Address": "This is an address",
+    "Lat": 55.4,
+    "Lon": 37.5,
+    "CoordsProvenance": "manually entered"
+  },
+  "PetType": "cat",
+  "ProvenanceURL": "https://pet911ru/rf123"
+}
