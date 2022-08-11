@@ -13,9 +13,11 @@ WORKDIR "/src/."
 RUN dotnet build "CardStorageRestAPI.csproj" -c Release -o /app/build
 
 FROM build AS publish
-RUN dotnet publish "CardStorageRestAPI.csproj" -c Release -o /app/publish /p:UseAppHost=false
+ARG VERSION="0.0.0"
+RUN dotnet publish "CardStorageRestAPI.csproj" -c Release -o /app/publish /p:UseAppHost=false /p:Version="$VERSION"
 
 FROM base AS final
+
 WORKDIR /app
 COPY --from=publish /app/publish .
 ENTRYPOINT ["dotnet", "CardStorageRestAPI.dll"]
