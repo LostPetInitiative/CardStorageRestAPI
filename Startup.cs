@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Reflection.PortableExecutable;
 using System.Threading.Tasks;
-using CassandraAPI.Storage;
+using PatCardStorageAPI.Storage;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
@@ -13,7 +13,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace CassandraAPI
+namespace PatCardStorageAPI
 {
     public class Startup
     {
@@ -42,8 +42,8 @@ namespace CassandraAPI
             services.AddSwaggerGen();
 
 
-            string cassandra_addrs = Environment.GetEnvironmentVariable("CASSANDRA_ADDRS");
-            string keyspace = Environment.GetEnvironmentVariable("KEYSPACE");
+            string? cassandra_addrs = Environment.GetEnvironmentVariable("CASSANDRA_ADDRS");
+            string? keyspace = Environment.GetEnvironmentVariable("KEYSPACE");
             if (cassandra_addrs == null || keyspace == null)
             {
                 Trace.TraceWarning("CASSANDRA_ADDRS or KEYSPACE env var is not found. Thus using test memory storage instead Cassandra");

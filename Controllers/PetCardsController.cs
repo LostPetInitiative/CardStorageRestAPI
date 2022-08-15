@@ -3,13 +3,13 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
-using CassandraAPI.Storage;
+using PatCardStorageAPI.Storage;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
 
 // For more information on enabling Web API for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
 
-namespace CassandraAPI.Controllers
+namespace PatCardStorageAPI.Controllers
 {
     [Route("[controller]")]
     [ApiController]
@@ -63,13 +63,14 @@ namespace CassandraAPI.Controllers
             }
         }
 
+        /*
         [HttpPut("{ns}/{localID}/features/{featuresIdent}")]
         public async Task<IActionResult> PutFeatures(string ns, string localID, string featuresIdent, [FromBody] JsonPoco.FeaturesPOCO features)
         {
             try
             {
                 Trace.TraceInformation($"Setting features {featuresIdent} for {ns}/{localID}");
-                await this.storage.SetFeatureVectorAsync(ns, localID, featuresIdent, features.Features);
+                await this.storage.SetCardFeatureVectorAsync(ns, localID, featuresIdent, features.Features);
                 Trace.TraceInformation($"Successfully set features {featuresIdent} for {ns}/{localID}");
                 return Ok();
             }
@@ -79,6 +80,7 @@ namespace CassandraAPI.Controllers
                 return StatusCode(500, err.ToString());
             }
         }
+        */
 
         // PUT <PetCardsController>
         [HttpPut("{ns}/{localID}")]

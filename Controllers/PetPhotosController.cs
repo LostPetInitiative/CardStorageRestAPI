@@ -3,13 +3,13 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
-using CassandraAPI.Storage;
+using PatCardStorageAPI.Storage;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
 
 // For more information on enabling Web API for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
 
-namespace CassandraAPI.Controllers
+namespace PatCardStorageAPI.Controllers
 {
     [Route("[controller]")]
     [ApiController]
@@ -21,28 +21,54 @@ namespace CassandraAPI.Controllers
             this.storage = storage;
         }
 
+        /// <summary>
+        /// Returns the image identified by the order nnum <paramref name="imNum"/> in the pet card <paramref name="localID"/> of the card namespace <paramref name="ns"/>
+        /// If the <paramref name="preferableProcessings"/> are specified. The processed image is returned.
+        /// </summary>
+        /// <param name="ns"></param>
+        /// <param name="localID"></param>
+        /// <param name="imNum"></param>
+        /// <param name="preferableProcessings">In the order of preference. comma separated identifications</param>
+        /// <returns></returns>
         [EnableCors]
-        [HttpGet("{ns}/{localID}/{imNum}/annotated")]
-        public async Task<IActionResult> GetAnnotatedImage(string ns, string localID, int imNum) {
+        [HttpGet("{ns}/{localID}/{imNum}")]
+        public async Task<IActionResult> GetImage(string ns, string localID, int imNum, [FromQuery]string? preferableProcessingsStr) {
             try
             {
                 Trace.TraceInformation($"Getting raw photo #{imNum} for {ns}/{localID}");
-                var photo = await this.storage.GetPetPhotoAsync(ns, localID, imNum);
+                var photo = await this.storage.GetOriginalPhotoAsync(ns, localID, imNum);
                 if (photo == null)
                 {
                     Trace.TraceInformation($"photo #{imNum} for {ns}/{localID} does not exist. Returning not found");
                     return NotFound();
                 }
                 else
-                {
-                    Trace.TraceInformation($"Extracted photo #{imNum} for {ns}/{localID} from storage. Transmitting it to client");
-                    string mimeType = photo.AnnotatedImageType switch
+                {                    
+                    Trace.TraceInformation($"Extracted photo #{imNum} for {ns}/{localID} from storage.");
+                    string? mimeType = null;
+                    byte[]? imageContent = null;                    
+                    if(!string.IsNullOrEmpty(preferableProcessingsStr))
                     {
-                        "jpg" => "image/jpeg",
-                        "png" => "image/png",
-                        _ => "image"
-                    };
-                    return File(photo.AnnotatedImage, mimeType);
+
+                        foreach (var processingIdent in preferableProcessingsStr.Split(',').Select(s => s.Trim()))
+                        {
+                            var processedPhoto = await this.storage.GetProcessedPetPhotoAsync(photo.Uuid, processingIdent);
+                            if (processedPhoto != null) {
+                                Trace.TraceInformation($"Transmitting processed image ({processingIdent}) to client according to the client preferences");
+                                mimeType = processedPhoto.ImageMimeType ?? "image";
+                                imageContent = processedPhoto.Image;
+                            }
+                        }
+                    }
+
+                    if(imageContent == null) {
+                        Trace.TraceInformation($"Transmitting unprocessed image to client");
+                        mimeType = photo.ImageMimeType ?? "image";
+                        imageContent = photo.Image;
+                    }
+
+                    
+                    return File(imageContent, mimeType);
                 }
             }
             catch (Exception ex)
@@ -55,10 +81,10 @@ namespace CassandraAPI.Controllers
         // GET: <PetPhotoController>/pet911ru/rf123
         [HttpGet("{ns}/{localID}")]
         [EnableCors]
-        public async IAsyncEnumerable<JsonPoco.PetPhoto> GetAll(string ns, string localID, [FromQuery] bool includeBinData=false)
+        public async IAsyncEnumerable<JsonPoco.PetOriginalPhoto> GetAll(string ns, string localID)
         {
             Trace.TraceInformation($"Getting photos for {ns}/{localID}");
-            await foreach (var photo in this.storage.GetPetPhotosAsync(ns, localID, includeBinData))
+            await foreach (var photo in this.storage.ListOriginalPhotosAsync(ns, localID))
             {
                 if (photo == null) {
                     Trace.TraceInformation($"There are no photos for {ns}/{localID}");
@@ -67,32 +93,36 @@ namespace CassandraAPI.Controllers
                     throw new KeyNotFoundException($"There are no photos for {ns}/{localID}"); // unreachable code?
                 }
                 Trace.TraceInformation($"Yielding photo {photo.ImageNum} for {ns}/{localID}");
-                yield return new JsonPoco.PetPhoto(photo);
+                yield return new JsonPoco.PetOriginalPhoto(photo);
             }
         }
 
         // PUT <PetPhotoController>/
         [HttpPut("{ns}/{localID}/{imNum}")]
-        public async Task<ActionResult> Put(string ns, string localID, int imNum, [FromBody ]JsonPoco.PetPhoto photo)
+        [ProducesResponseType(typeof(Guid), StatusCodes.Status201Created)]
+        [ProducesResponseType(typeof(Guid), StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult> Put(string ns, string localID, int imNum, [FromBody ]JsonPoco.PetOriginalPhoto photo)
         {
             try
             {
                 Trace.TraceInformation($"Adding photo {imNum} for {ns}/{localID}");
-                if (await this.storage.AddPetPhotoAsync(ns, localID, imNum, photo.ToPetPhoto()))
+                (Guid uuid, bool created) = await this.storage.AddOriginalPetPhotoAsync(ns, localID, imNum, photo.ToPetPhoto());
+                if(created)
                 {
-                    Trace.TraceInformation($"successfully added photo {imNum} for {ns}/{localID}");
-                    return Ok();
+                    Trace.TraceInformation($"successfully added photo {imNum} for {ns}/{localID}. UUID: {uuid}");
+                    return CreatedAtAction(nameof(GetImage),uuid);
                 }
                 else
                 {
-                    Trace.TraceError($"Failed to add photo {imNum} for {ns}/{localID}");
-                    return StatusCode(500);
+                    Trace.TraceError($"Photo {imNum} for {ns}/{localID} already exists");                    
+                    return new ConflictObjectResult(uuid);
                 }
             }
             catch (Exception ex)
             {
                 Trace.TraceError($"Exception during adding a photo {imNum} for {ns}/{localID}: {ex}");
-                return StatusCode(500, ex.ToString());
+                return StatusCode(StatusCodes.Status500InternalServerError, ex.ToString());
             }
         }
 
@@ -108,7 +138,7 @@ namespace CassandraAPI.Controllers
                 }
 
                 Trace.TraceInformation($"Deleting photo {photoNum} for {ns}/{localID}");
-                bool res = await this.storage.DeletePetPhoto(ns, localID, photoNum);
+                bool res = await this.storage.DeleteOriginalPetPhoto(ns, localID, photoNum);
                 if (res)
                     Trace.TraceInformation($"Successfully deleted photo {photoNum} for {ns}/{localID}");
                 else
