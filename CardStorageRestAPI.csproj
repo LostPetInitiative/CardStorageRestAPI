@@ -15,4 +15,22 @@
     <PackageReference Include="System.Text.Json" Version="6.0.5" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Scripts\create_cards_by_id.cql">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Scripts\create_contant_info_type.cql">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Scripts\create_images_by_card_id.cql">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Scripts\create_kashtanka_keyspace.cql">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Scripts\create_location_type.cql">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

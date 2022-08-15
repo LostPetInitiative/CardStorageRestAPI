@@ -19,6 +19,17 @@ namespace CassandraAPI.Storage
         private readonly string keyspace;
         private readonly string[] contactPoints;
 
+        /// <summary>
+        /// To be executed on every connection. The scripts must be idempotent (e.g. have IF NOT EXIST clauses). Reside in Scripts directory. Order is important.
+        /// </summary>
+        private static readonly string[] deploymentScripts = new string[] {
+            "create_kashtanka_keyspace.cql",
+            "create_location_type.cql",
+            "create_contant_info_type.cql",
+            "create_cards_by_id.cql",
+            "create_images_by_card_id.cql"
+        };
+        
         public static IEnumerable<IPEndPoint> EndpointFromString(string str)
         {
             var parts = str.Split(":", StringSplitOptions.RemoveEmptyEntries).Select(p => p.Trim()).ToArray();
@@ -70,8 +81,17 @@ namespace CassandraAPI.Storage
                 {
                     try
                     {
-                        this.cluster = Cluster.Builder()
-                                 .AddContactPoints(contactPoints)
+                        var builder = Cluster.Builder();                        
+                        try {
+                            IPEndPoint[] ipEndpoints = this.contactPoints.SelectMany(s => EndpointFromString(s)).ToArray();
+                            builder = builder.AddContactPoints(ipEndpoints);                            
+                        }
+                        catch (Exception ex) {
+                            Trace.TraceError($"Failed to construct ip endpoints from strings {this.contactPoints}: {ex}.\nFalling back to plain string endpoint usage");
+                            builder = builder.AddContactPoints(this.contactPoints);
+                        }
+                        
+                        this.cluster = builder
                                  .WithApplicationName("RestAPI")
                                  .WithMaxProtocolVersion(ProtocolVersion.V4)
                                  .WithCompression(CompressionType.LZ4)
@@ -84,7 +104,7 @@ namespace CassandraAPI.Storage
                         throw;
                     }
 
-                    this.session = await cluster.ConnectAsync(this.keyspace);
+                    this.session = await cluster.ConnectAsync();
 
                     Trace.TraceInformation($"Binary protocol version: {this.session.BinaryProtocolVersion}");
                     if (this.session.BinaryProtocolVersion != (int)Cassandra.ProtocolVersion.V4)
@@ -97,16 +117,28 @@ namespace CassandraAPI.Storage
                 }
                 while (!connected);
 
-                this.getPetCardStatement = session.Prepare("SELECT * FROM cards_by_id WHERE namespace = ? AND local_id = ?");
-                this.insertPetCardStatement = session.Prepare("INSERT INTO cards_by_id (namespace, local_id, provenance_url, animal, animal_sex, card_type, event_time,card_creation_time, event_location, contact_info) values (?,?,?,?,?,?,?,?,?,?)");
-                this.deletePetCardStatement = session.Prepare("DELETE FROM cards_by_id WHERE namespace = ? AND local_id = ?");
+                Trace.TraceInformation("Deploying schema...");
+                foreach (var deploymentScript in deploymentScripts) {
+                    var script = await File.ReadAllTextAsync(Path.Combine("Scripts", deploymentScript));
+                    var statement = await this.session.PrepareAsync(script);
+                    statement.SetConsistencyLevel(ConsistencyLevel.All);
+                    await session.ExecuteAsync(statement.Bind());
+                    Trace.TraceInformation($"{deploymentScript} deployed successfully");
+                }
 
-                this.deleteSpecificPetImageStatement = session.Prepare("DELETE FROM images_by_card_id WHERE namespace = ? AND local_id = ? AND image_num = ?");
-                this.deleteAllPetImagesStatement = session.Prepare("DELETE FROM images_by_card_id WHERE namespace = ? AND local_id = ?");
-                this.getAllPetImagesStatementIncBin = session.Prepare("SELECT * FROM images_by_card_id WHERE namespace = ? AND local_id = ?");
-                this.getAllPetImagesStatement = session.Prepare("SELECT namespace,local_id,image_num,detection_confidence,detection_rotation FROM images_by_card_id WHERE namespace = ? AND local_id = ?");
-                this.getParticularPetImageStatement = session.Prepare("SELECT * FROM images_by_card_id WHERE namespace = ? AND local_id = ? AND image_num = ?");
-                this.addPetImageStatement = session.Prepare("INSERT INTO images_by_card_id (namespace, local_id, image_num, annotated_image, annotated_image_type, extracted_pet_image, detection_confidence, detection_rotation) values (?,?,?,?,?,?,?,?)");
+                session.ChangeKeyspace(this.keyspace);
+                Trace.TraceInformation($"Working with keyspace {this.keyspace} from now");
+
+                this.getPetCardStatement = await session.PrepareAsync("SELECT * FROM cards_by_id WHERE namespace = ? AND local_id = ?");
+                this.insertPetCardStatement = await session.PrepareAsync("INSERT INTO cards_by_id (namespace, local_id, provenance_url, animal, animal_sex, card_type, event_time,card_creation_time, event_location, contact_info) values (?,?,?,?,?,?,?,?,?,?)");
+                this.deletePetCardStatement = await session.PrepareAsync("DELETE FROM cards_by_id WHERE namespace = ? AND local_id = ?");
+
+                this.deleteSpecificPetImageStatement = await session.PrepareAsync("DELETE FROM images_by_card_id WHERE namespace = ? AND local_id = ? AND image_num = ?");
+                this.deleteAllPetImagesStatement = await session.PrepareAsync("DELETE FROM images_by_card_id WHERE namespace = ? AND local_id = ?");
+                this.getAllPetImagesStatementIncBin = await session.PrepareAsync("SELECT * FROM images_by_card_id WHERE namespace = ? AND local_id = ?");
+                this.getAllPetImagesStatement = await session.PrepareAsync("SELECT namespace,local_id,image_num,detection_confidence,detection_rotation FROM images_by_card_id WHERE namespace = ? AND local_id = ?");
+                this.getParticularPetImageStatement = await session.PrepareAsync("SELECT * FROM images_by_card_id WHERE namespace = ? AND local_id = ? AND image_num = ?");
+                this.addPetImageStatement = await session.PrepareAsync("INSERT INTO images_by_card_id (namespace, local_id, image_num, annotated_image, annotated_image_type, extracted_pet_image, detection_confidence, detection_rotation) values (?,?,?,?,?,?,?,?)");
 
                 this.session.UserDefinedTypes.Define(UdtMap.For<Location>("location")
                     .Map(v => v.Address, "address")
@@ -127,7 +159,7 @@ namespace CassandraAPI.Storage
                 initSemaphore.Release();
             }
         }
-
+        
         public static sbyte EncodeAnimal(string animal)
         {
             return animal switch
