@@ -42,23 +42,14 @@ namespace PatCardStorageAPI.Storage
             if (ns == "pet911ru" && localID == "rf123")
             {
                 yield return
-                    new PetOriginalPhoto()
-                    {   
-                        ImageNum = 2,
-                        Uuid = Guid.NewGuid()
-
-                    };
-                yield return new PetOriginalPhoto()
-                {
-                    ImageNum = 1,
-                    Uuid = Guid.NewGuid()
-                };
+                    new PetOriginalPhoto(Guid.NewGuid(), null, null, 2);
+                yield return new PetOriginalPhoto(Guid.NewGuid(), null, null, 1);                
             }
             else
                 yield return null;
         }        
 
-        public Task<PetOriginalPhoto?> GetOriginalPhotoAsync(string ns, string localID, int imageNum)
+        public Task<PetPhotoWithGuid?> GetOriginalPhotoAsync(string ns, string localID, int imageNum)
         {
             throw new NotImplementedException();
         }
@@ -83,7 +74,7 @@ namespace PatCardStorageAPI.Storage
             throw new NotImplementedException();
         }
 
-        public Task<(Guid,bool)> AddOriginalPetPhotoAsync(string ns, string localID, int imageNum, PetOriginalPhoto photo)
+        public Task<(Guid,bool)> AddOriginalPetPhotoAsync(string ns, string localID, int imageNum, PetPhoto photo)
         {
             throw new NotImplementedException();
         }

@@ -146,7 +146,7 @@ namespace PatCardStorageAPI.Storage
                 this.deletePetProcessedImageStatement = await session.PrepareAsync("DELETE FROM processed_images_by_image_uuid WHERE image_uuid = ? AND processing_ident = ?");
                 this.deleteAllPetImagesStatement = await session.PrepareAsync("DELETE FROM images_by_card_id WHERE namespace = ? AND local_id = ?");
                 // this.getAllPetImagesStatementIncBin = await session.PrepareAsync("SELECT * FROM images_by_card_id WHERE namespace = ? AND local_id = ?");
-                this.getAllPetImagesStatement = await session.PrepareAsync("SELECT namespace,local_id,image_num FROM images_by_card_id WHERE namespace = ? AND local_id = ?");
+                this.getAllPetImagesStatement = await session.PrepareAsync("SELECT namespace,local_id,image_num,image_uuid FROM images_by_card_id WHERE namespace = ? AND local_id = ?");
                 this.getParticularOriginalPetImageUuidStatement = await session.PrepareAsync("SELECT image_uuid FROM images_by_card_id WHERE namespace = ? AND local_id = ? AND image_num = ?");
                 this.getParticularOriginalPetImageStatement = await session.PrepareAsync("SELECT * FROM images_by_card_id WHERE namespace = ? AND local_id = ? AND image_num = ?");
                 this.getParticularProcessedPetImageStatement = await session.PrepareAsync("SELECT * FROM processed_images_by_image_uuid WHERE image_uuid = ? AND processing_ident = ?");
@@ -269,7 +269,7 @@ namespace PatCardStorageAPI.Storage
             return true;
         }
 
-        public async Task<(Guid uuid, bool created)> AddOriginalPetPhotoAsync(string ns, string localID, int imageNum, PetOriginalPhoto photo)
+        public async Task<(Guid uuid, bool created)> AddOriginalPetPhotoAsync(string ns, string localID, int imageNum, PetPhoto photo)
         {
             await EnsureConnectionInitialized();
 
@@ -312,7 +312,7 @@ namespace PatCardStorageAPI.Storage
                 photo.ImageMimeType
                 );
             var res = await this.session.ExecuteAsync(statement);
-            return true;
+            return res.Count() > 0;            
         }
 
         public async Task<bool> DeletePetCardAsync(string ns, string localID)
@@ -359,24 +359,21 @@ namespace PatCardStorageAPI.Storage
         private static PetOriginalPhoto ConvertRowToPetOrigPhoto(Row row, bool includeBinData)
         {
             // See Scripts/create_images_by_card_id.cql for column names
-            return new PetOriginalPhoto()
-            {
-                ImageNum = row.GetValue<sbyte>("image_num"),
-                Uuid = row.GetValue<Guid>("image_uuid"),
-                Image = includeBinData ? row.GetValue<byte[]>("image") : null,
-                ImageMimeType = includeBinData ? row.GetValue<string>("image_mime_type") : null
-            };
+            return new PetOriginalPhoto(
+                row.GetValue<Guid>("image_uuid"),
+                includeBinData ? row.GetValue<byte[]>("image") : null,
+                includeBinData ? row.GetValue<string>("image_mime_type") : null,
+                row.GetValue<sbyte>("image_num")
+                );
         }
 
         private static PetPhoto ConvertRowToPetProcessedPhoto(Row row, bool includeBinData)
         {
             // See Scripts/create_images_by_card_id.cql for column names
-            return new PetOriginalPhoto()
-            {
-                Uuid = row.GetValue<Guid>("image_uuid"),
-                Image = includeBinData ? row.GetValue<byte[]>("image") : null,
-                ImageMimeType = includeBinData ? row.GetValue<string>("image_mime_type") : null
-            };
+            return new PetPhoto(
+                includeBinData ? row.GetValue<byte[]>("image") : null,
+                includeBinData ? row.GetValue<string>("image_mime_type") : null
+                );
         }
 
         public async IAsyncEnumerable<PetOriginalPhoto> ListOriginalPhotosAsync(string ns, string localID)
@@ -410,7 +407,7 @@ namespace PatCardStorageAPI.Storage
             return true;
         }
 
-        public async Task<PetOriginalPhoto> GetOriginalPhotoAsync(string ns, string localID, int imageNum)
+        public async Task<PetPhotoWithGuid> GetOriginalPhotoAsync(string ns, string localID, int imageNum)
         {
             await EnsureConnectionInitialized();
 

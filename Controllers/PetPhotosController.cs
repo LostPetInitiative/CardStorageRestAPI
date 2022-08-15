@@ -96,22 +96,22 @@ namespace PatCardStorageAPI.Controllers
                 yield return new JsonPoco.PetOriginalPhoto(photo);
             }
         }
-
-        // PUT <PetPhotoController>/
+        
         [HttpPut("{ns}/{localID}/{imNum}")]
         [ProducesResponseType(typeof(Guid), StatusCodes.Status201Created)]
         [ProducesResponseType(typeof(Guid), StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult> Put(string ns, string localID, int imNum, [FromBody ]JsonPoco.PetOriginalPhoto photo)
+        public async Task<ActionResult> Put(string ns, string localID, int imNum, [FromBody ]JsonPoco.PetPhoto photo)
         {
             try
             {
                 Trace.TraceInformation($"Adding photo {imNum} for {ns}/{localID}");
-                (Guid uuid, bool created) = await this.storage.AddOriginalPetPhotoAsync(ns, localID, imNum, photo.ToPetPhoto());
+                (Guid uuid, bool created) = await this.storage.AddOriginalPetPhotoAsync(ns, localID, imNum, photo.ToStoragePetPhoto());
                 if(created)
                 {
                     Trace.TraceInformation($"successfully added photo {imNum} for {ns}/{localID}. UUID: {uuid}");
-                    return CreatedAtAction(nameof(GetImage),uuid);
+                    var routeValues = new { ns = ns, localID = localID, imNum = imNum };
+                    return CreatedAtAction(nameof(GetImage), routeValues, uuid);
                 }
                 else
                 {
@@ -125,6 +125,44 @@ namespace PatCardStorageAPI.Controllers
                 return StatusCode(StatusCodes.Status500InternalServerError, ex.ToString());
             }
         }
+
+        [HttpPut("{ns}/{localID}/{imNum}/{processingIdent}")]
+        [ProducesResponseType(StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(typeof(string), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult> Put(string ns, string localID, int imNum,string processingIdent, [FromBody] JsonPoco.PetPhoto photo)
+        {
+            try
+            {
+                Trace.TraceInformation($"Adding processed ({processingIdent}) photo {imNum} for {ns}/{localID}");
+                processingIdent = processingIdent.Trim();
+                // TODO: guard against injections here
+                var orig = await storage.GetOriginalPhotoAsync(ns, localID, imNum);
+                if (orig == null) {
+                    return NotFound($"Original photo identified by {ns}/{localID}/{imNum} is not found");
+                }                
+
+                bool created = await this.storage.AddProcessedPetPhotoAsync(orig.Uuid, processingIdent, photo.ToStoragePetPhoto());
+                if (created)
+                {
+                    Trace.TraceInformation($"successfully added processed ({processingIdent}) photo {imNum} for {ns}/{localID}. UUID: {orig.Uuid}");
+                    return CreatedAtAction(nameof(GetImage), orig.Uuid);
+                }
+                else
+                {
+                    Trace.TraceError($"Processed ({processingIdent}) photo {imNum} for {ns}/{localID}. UUID: {orig.Uuid} already exists");
+                    return new ConflictResult();
+                }
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceError($"Exception during adding a photo {imNum} for {ns}/{localID}: {ex}");
+                return StatusCode(StatusCodes.Status500InternalServerError, ex.ToString());
+            }
+        }
+
+
 
         [HttpDelete("{ns}/{localID}/{photoNum?}")]
         public async Task<ActionResult<bool>> Delete(string ns, string localID, int photoNum)

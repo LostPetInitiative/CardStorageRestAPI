@@ -8,7 +8,7 @@ namespace PatCardStorageAPI.Storage
     public interface IPhotoStorage
     {
         IAsyncEnumerable<PetOriginalPhoto> ListOriginalPhotosAsync(string ns, string localID);
-        Task<PetOriginalPhoto?> GetOriginalPhotoAsync(string ns, string localID, int imageNum);
+        Task<PetPhotoWithGuid?> GetOriginalPhotoAsync(string ns, string localID, int imageNum);
         Task<PetPhoto?> GetProcessedPetPhotoAsync(Guid imageUuid, string processingIdent);
 
         /// <summary>
@@ -22,14 +22,23 @@ namespace PatCardStorageAPI.Storage
         Task<bool> DeleteProcessedPhoto(Guid imageUuid, string processingIdent);
 
         /// <summary>
-        /// Returns Guid if the photo is successfully stored. If the photo already exists, returns null.
+        /// Returns Guid if the photo is successfully stored. If the photo already exists does NOT replace it, returns null.
         /// </summary>
         /// <param name="ns"></param>
         /// <param name="localID"></param>
         /// <param name="imageNum"></param>
         /// <param name="photo"></param>
         /// <returns></returns>
-        Task<(Guid uuid, bool created)> AddOriginalPetPhotoAsync(string ns, string localID, int imageNum, PetOriginalPhoto photo);
+        Task<(Guid uuid, bool created)> AddOriginalPetPhotoAsync(string ns, string localID, int imageNum, PetPhoto photo);
+
+        /// <summary>
+        /// Returns whether new processed photo is added.
+        /// If the photo already exists does NOT replace it, returns false.
+        /// </summary>
+        /// <param name="imageUuid"></param>
+        /// <param name="processingIdent"></param>
+        /// <param name="photo"></param>
+        /// <returns></returns>
         Task<bool> AddProcessedPetPhotoAsync(Guid imageUuid, string processingIdent, PetPhoto photo);
     }
 }
