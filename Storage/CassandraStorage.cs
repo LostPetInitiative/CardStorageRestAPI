@@ -172,6 +172,14 @@ namespace PatCardStorageAPI.Storage
                 initSemaphore.Release();
             }
         }
+
+        private static bool checkInsertSuccessful(RowSet? rowSet)
+        {
+            var row = rowSet?.FirstOrDefault();
+            if (row == null)
+                throw new ArgumentException("insert query (with IF NOT EXIST) result is supposed to return rows");
+            return row.GetValue<bool>("[applied]");
+        }
         
         public static sbyte EncodeAnimal(string animal)
         {
@@ -236,21 +244,9 @@ namespace PatCardStorageAPI.Storage
         public async Task<bool> SetPetCardAsync(string ns, string localID, PetCard card)
         {
             await EnsureConnectionInitialized();
-            /*
-            namespace text,
-            local_id text,
-            provenance_url text,
-            animal tinyint,
-            animal_sex tinyint,
-            card_type tinyint,
-            event_time tuple<timestamp,text>, -- time moment + provenance
-            card_creation_time timestamp,
-            event_location location,
-            contact_info frozen<contact_info>, -- frozen as contact info contains collections
-            features map<text,frozen<list<double>>>
 
-            */
 
+            // See scripts/create_cards_by_id.cql
             var statement = this.insertPetCardStatement.Bind(
                 ns,
                 localID,
@@ -264,9 +260,7 @@ namespace PatCardStorageAPI.Storage
                 card.ContactInfo
                 );
 
-            await session.ExecuteAsync(statement);
-
-            return true;
+            return checkInsertSuccessful(await session.ExecuteAsync(statement));
         }
 
         public async Task<(Guid uuid, bool created)> AddOriginalPetPhotoAsync(string ns, string localID, int imageNum, PetPhoto photo)
@@ -284,11 +278,10 @@ namespace PatCardStorageAPI.Storage
                 uuid
                 );
             var res = await this.session.ExecuteAsync(statement);
-            int count = res.Count();
-            if (count == 1) {
+            if(checkInsertSuccessful(res)) {
                 return (uuid, true);
             }
-            else if (count == 0) {
+            else {
                 // fetching existing UUID
                 var statement2 = this.getParticularOriginalPetImageUuidStatement.Bind(ns, localID, (sbyte)imageNum);
                 var res2 = await this.session.ExecuteAsync(statement2);
@@ -298,9 +291,7 @@ namespace PatCardStorageAPI.Storage
                 } else {
                     throw new InvalidOperationException($"Failed to create an entry as well as to find existing one for :{ns}/{localID}/{imageNum}");
                 }
-            }
-            else
-                throw new InvalidOperationException("More than 1 row created");            
+            }            
         }
 
         public async Task<bool> AddProcessedPetPhotoAsync(Guid imageUuid, string processingIdent, PetPhoto photo) {
@@ -311,8 +302,7 @@ namespace PatCardStorageAPI.Storage
                 photo.Image,
                 photo.ImageMimeType
                 );
-            var res = await this.session.ExecuteAsync(statement);
-            return res.Count() > 0;            
+            return checkInsertSuccessful(await this.session.ExecuteAsync(statement));
         }
 
         public async Task<bool> DeletePetCardAsync(string ns, string localID)

@@ -44,7 +44,7 @@ namespace PatCardStorageAPI.Controllers
                 }
                 else
                 {                    
-                    Trace.TraceInformation($"Extracted photo #{imNum} for {ns}/{localID} from storage.");
+                    Trace.TraceInformation($"Extracted photo #{imNum} for {ns}/{localID} from storage. uuid: {photo.Uuid}");
                     string? mimeType = null;
                     byte[]? imageContent = null;                    
                     if(!string.IsNullOrEmpty(preferableProcessingsStr))
@@ -52,11 +52,13 @@ namespace PatCardStorageAPI.Controllers
 
                         foreach (var processingIdent in preferableProcessingsStr.Split(',').Select(s => s.Trim()))
                         {
+                            Trace.TraceInformation($"Checking existence of {processingIdent} for {photo.Uuid}");
                             var processedPhoto = await this.storage.GetProcessedPetPhotoAsync(photo.Uuid, processingIdent);
                             if (processedPhoto != null) {
                                 Trace.TraceInformation($"Transmitting processed image ({processingIdent}) to client according to the client preferences");
                                 mimeType = processedPhoto.ImageMimeType ?? "image";
                                 imageContent = processedPhoto.Image;
+                                break;
                             }
                         }
                     }
@@ -147,7 +149,8 @@ namespace PatCardStorageAPI.Controllers
                 if (created)
                 {
                     Trace.TraceInformation($"successfully added processed ({processingIdent}) photo {imNum} for {ns}/{localID}. UUID: {orig.Uuid}");
-                    return CreatedAtAction(nameof(GetImage), orig.Uuid);
+                    var routeValues = new { ns = ns, localID = localID, imNum = imNum, preferableProcessingsStr = processingIdent };
+                    return CreatedAtAction(nameof(GetImage), routeValues, orig.Uuid);
                 }
                 else
                 {

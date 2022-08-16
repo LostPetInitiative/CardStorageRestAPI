@@ -84,6 +84,9 @@ namespace PatCardStorageAPI.Controllers
 
         // PUT <PetCardsController>
         [HttpPut("{ns}/{localID}")]
+        [ProducesResponseType(StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult> Put(string ns, string localID, [FromBody] PetCard value)
         {
             try
@@ -93,12 +96,12 @@ namespace PatCardStorageAPI.Controllers
                 if (res)
                 {
                     Trace.TraceInformation($"Stored {ns}/{localID}");
-                    return Ok();
+                    return CreatedAtAction(nameof(Get),new { ns= ns, localID = localID },null);
                 }
                 else
                 {
-                    Trace.TraceWarning($"Error while storing {ns}/{localID}");
-                    return StatusCode(500);
+                    Trace.TraceWarning($"Card {ns}/{localID} already exists");
+                    return Conflict();
                 }
             }
             catch (Exception err)
