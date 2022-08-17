@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Cassandra.DataStax.Graph;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -10,6 +11,8 @@ namespace PatCardStorageAPI.Storage
         IAsyncEnumerable<PetOriginalPhoto> ListOriginalPhotosAsync(string ns, string localID);
         Task<PetPhotoWithGuid?> GetOriginalPhotoAsync(string ns, string localID, int imageNum);
         Task<PetPhoto?> GetProcessedPetPhotoAsync(Guid imageUuid, string processingIdent);
+
+        Task<double[]?> GetPhotoFeatures(Guid imageUuid, string featuresIdent);
 
         /// <summary>
         /// photoNum = -1 means: delete all of the photos for the specified pet
@@ -40,5 +43,7 @@ namespace PatCardStorageAPI.Storage
         /// <param name="photo"></param>
         /// <returns></returns>
         Task<bool> AddProcessedPetPhotoAsync(Guid imageUuid, string processingIdent, PetPhoto photo);
+
+        Task<bool> SetPhotoFeatureVectorAsync(Guid imageUuid, string featuresIdent, double[] features);
     }
 }

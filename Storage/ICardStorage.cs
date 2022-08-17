@@ -10,5 +10,6 @@ namespace PatCardStorageAPI.Storage
         Task<PetCard> GetPetCardAsync(string ns, string localID);
         Task<bool> SetPetCardAsync(string ns, string localID,PetCard card);
         Task<bool> DeletePetCardAsync(string ns, string localID);
+        Task<bool> SetCardFeatureVectorAsync(string ns, string localID, string featuresIdent, double[] features);
     }
 }

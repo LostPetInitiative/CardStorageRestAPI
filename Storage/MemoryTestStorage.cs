@@ -78,5 +78,20 @@ namespace PatCardStorageAPI.Storage
         {
             throw new NotImplementedException();
         }
+
+        public Task<bool> SetCardFeatureVectorAsync(string ns, string localID, string featuresIdent, double[] features)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<bool> SetPhotoFeatureVectorAsync(Guid imageUuid, string featuresIdent, double[] features)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<double[]?> GetPhotoFeatures(Guid imageUuid, string featuresIdent)
+        {
+            throw new NotImplementedException();
+        }
     }
 }

@@ -63,7 +63,7 @@ namespace PatCardStorageAPI.Controllers
             }
         }
 
-        /*
+        
         [HttpPut("{ns}/{localID}/features/{featuresIdent}")]
         public async Task<IActionResult> PutFeatures(string ns, string localID, string featuresIdent, [FromBody] JsonPoco.FeaturesPOCO features)
         {
@@ -80,7 +80,7 @@ namespace PatCardStorageAPI.Controllers
                 return StatusCode(500, err.ToString());
             }
         }
-        */
+        
 
         // PUT <PetCardsController>
         [HttpPut("{ns}/{localID}")]

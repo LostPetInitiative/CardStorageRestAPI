@@ -62,8 +62,10 @@ namespace PatCardStorageAPI.Storage
         private PreparedStatement? getParticularOriginalPetImageUuidStatement;
         private PreparedStatement? getParticularOriginalPetImageStatement;
         private PreparedStatement? getParticularProcessedPetImageStatement;
+        private PreparedStatement? getPhotoFeatureVectorStatement;
         private PreparedStatement? addPetOriginalImageStatement;
         private PreparedStatement? addPetProcessedImageStatement;
+        private PreparedStatement? addPhotoFeaturesStatement;
         
         private bool connected = false;
         private SemaphoreSlim initSemaphore = new SemaphoreSlim(1);
@@ -152,6 +154,8 @@ namespace PatCardStorageAPI.Storage
                 this.getParticularProcessedPetImageStatement = await session.PrepareAsync("SELECT * FROM processed_images_by_image_uuid WHERE image_uuid = ? AND processing_ident = ?");
                 this.addPetOriginalImageStatement = await session.PrepareAsync("INSERT INTO images_by_card_id (namespace, local_id, image_num, image, image_mime_type, image_uuid) values (?,?,?,?,?,?) IF NOT EXISTS");
                 this.addPetProcessedImageStatement = await session.PrepareAsync("INSERT INTO processed_images_by_image_uuid (image_uuid, processing_ident, image, image_mime_type) values (?,?,?,?) IF NOT EXISTS");
+                this.addPhotoFeaturesStatement = await session.PrepareAsync("INSERT INTO image_features_by_image_uuid (image_uuid, feature_ident, feature_vector) values (?,?,?)");
+                this.getPhotoFeatureVectorStatement = await session.PrepareAsync("SELECT feature_vector FROM image_features_by_image_uuid WHERE image_uuid = ? AND feature_ident = ?");
 
                 this.session.UserDefinedTypes.Define(UdtMap.For<Location>("location")
                     .Map(v => v.Address, "address")
@@ -440,6 +444,27 @@ namespace PatCardStorageAPI.Storage
                 newDict, ns, localID);
             await this.session.ExecuteAsync(statement);
             return true;
+        }
+
+        public async Task<bool> SetPhotoFeatureVectorAsync(Guid imageUuid, string featuresIdent, double[] features)
+        {
+            await EnsureConnectionInitialized();
+
+            var statement = this.addPhotoFeaturesStatement.Bind(imageUuid, featuresIdent, features);
+            await this.session.ExecuteAsync(statement);
+
+            return true;
+        }
+
+        public async Task<double[]?> GetPhotoFeatures(Guid imageUuid, string featuresIdent)
+        {
+            await EnsureConnectionInitialized();
+
+            var statement = this.getPhotoFeatureVectorStatement.Bind(imageUuid, featuresIdent);
+            var res = await this.session.ExecuteAsync(statement);
+
+            return res.FirstOrDefault()?.GetValue<double[]>("feature_vector");
+
         }
     }
 }

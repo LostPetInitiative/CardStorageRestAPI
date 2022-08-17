@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
@@ -83,8 +84,13 @@ namespace PatCardStorageAPI.Controllers
         // GET: <PetPhotoController>/pet911ru/rf123
         [HttpGet("{ns}/{localID}")]
         [EnableCors]
-        public async IAsyncEnumerable<JsonPoco.PetOriginalPhoto> GetAll(string ns, string localID)
+        public async IAsyncEnumerable<JsonPoco.PhotoDescriptorOut> GetAll(string ns, string localID, [FromQuery] string? featuresToInclude)
         {
+            string[] featuresToIncludeSplit = new string[0];
+            if (featuresToInclude != null) {
+                featuresToIncludeSplit = featuresToInclude.Trim().Split(",", StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToArray();
+            }
+
             Trace.TraceInformation($"Getting photos for {ns}/{localID}");
             await foreach (var photo in this.storage.ListOriginalPhotosAsync(ns, localID))
             {
@@ -95,7 +101,15 @@ namespace PatCardStorageAPI.Controllers
                     throw new KeyNotFoundException($"There are no photos for {ns}/{localID}"); // unreachable code?
                 }
                 Trace.TraceInformation($"Yielding photo {photo.ImageNum} for {ns}/{localID}");
-                yield return new JsonPoco.PetOriginalPhoto(photo);
+
+                var featuresTasks = featuresToIncludeSplit.Select(featuresIdent => this.storage.GetPhotoFeatures(photo.Uuid, featuresIdent)).ToArray();
+
+                Dictionary<string, double[]> featuresDict = new Dictionary<string, double[]>();
+                for (int i = 0; i < featuresToIncludeSplit.Length; i++) {
+                    var features = await featuresTasks[i];
+                    if (features != null) featuresDict.Add(featuresToIncludeSplit[i], features);
+                }
+                yield return new JsonPoco.PhotoDescriptorOut(photo.ImageNum, photo.Uuid, featuresDict);
             }
         }
         
@@ -128,7 +142,7 @@ namespace PatCardStorageAPI.Controllers
             }
         }
 
-        [HttpPut("{ns}/{localID}/{imNum}/{processingIdent}")]
+        [HttpPut("{ns}/{localID}/{imNum}/processed/{processingIdent}")]
         [ProducesResponseType(StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(typeof(string), StatusCodes.Status404NotFound)]
@@ -165,7 +179,29 @@ namespace PatCardStorageAPI.Controllers
             }
         }
 
+        [HttpPut("{ns}/{localID}/{imNum}/features/{featuresIdent}")]
+        public async Task<IActionResult> PutFeatures(string ns, string localID, int imNum, string featuresIdent, [FromBody] JsonPoco.FeaturesPOCO features)
+        {
+            try
+            {
+                // TODO: guard against injections here
+                var orig = await storage.GetOriginalPhotoAsync(ns, localID, imNum);
+                if (orig == null)
+                {
+                    return NotFound($"Original photo identified by {ns}/{localID}/{imNum} is not found");
+                }
 
+                Trace.TraceInformation($"Setting features {featuresIdent} for {ns}/{localID}/{imNum} ({orig.Uuid})");
+                await this.storage.SetPhotoFeatureVectorAsync(orig.Uuid, featuresIdent, features.Features);
+                Trace.TraceInformation($"Successfully set features {featuresIdent} for {ns}/{localID}/{imNum} ({orig.Uuid})");
+                return Ok();
+            }
+            catch (Exception err)
+            {
+                Trace.TraceError($"Except card for {ns}/{localID}: {err}");
+                return StatusCode(500, err.ToString());
+            }
+        }
 
         [HttpDelete("{ns}/{localID}/{photoNum?}")]
         public async Task<ActionResult<bool>> Delete(string ns, string localID, int photoNum)

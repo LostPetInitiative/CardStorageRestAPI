@@ -25,26 +25,21 @@ namespace PatCardStorageAPI.JsonPoco
         }
     }
 
-    public class PetPhotoWithUuid : PetPhoto {
-
-        public Guid Uuid { get; set; }        
-
-        public PetPhotoWithUuid(PatCardStorageAPI.PetPhotoWithGuid photo): base(photo)
-        {
-            this.Uuid = photo.Uuid;
-        }
-    }
-
     /// <summary>
     /// Original photo is identified by the ImageNum (order num) in the pet card.
     /// </summary>
-    public class PetOriginalPhoto : PetPhotoWithUuid
+    public class PhotoDescriptorOut
     {
-        public int ImageNum { get; set; }
+        public int ImageNum { get; private set; }
+        public Guid Uuid { get; private set; }
+        public IReadOnlyDictionary<string, double[]> FeatureVectors { get; private set; }
 
-        public PetOriginalPhoto(PatCardStorageAPI.PetOriginalPhoto photo):base(photo)
+        public PhotoDescriptorOut(int num, Guid uuid, IReadOnlyDictionary<string, double[]> features)
         {
-            this.ImageNum = photo.ImageNum;            
+            this.ImageNum = num;
+            this.Uuid = uuid;
+            this.FeatureVectors = features;
+
         }
     }
 }
