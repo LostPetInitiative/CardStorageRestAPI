@@ -9,7 +9,7 @@ using Cassandra;
 using Cassandra.Mapping;
 using ISession = Cassandra.ISession;
 
-namespace CassandraAPI.Storage
+namespace PatCardStorageAPI.Storage
 {
     public class CassandraStorage : ICardStorage, IPhotoStorage
     {
@@ -19,6 +19,19 @@ namespace CassandraAPI.Storage
         private readonly string keyspace;
         private readonly string[] contactPoints;
 
+        /// <summary>
+        /// To be executed on every connection. The scripts must be idempotent (e.g. have IF NOT EXIST clauses). Reside in Scripts directory. Order is important.
+        /// </summary>
+        private static readonly string[] deploymentScripts = new string[] {
+            "create_kashtanka_keyspace.cql",
+            "create_location_type.cql",
+            "create_contant_info_type.cql",
+            "create_cards_by_id.cql",
+            "create_images_by_card_id.cql",
+            "create_processed_images_by_uuid.cql",
+            "create_image_featrues_by_image_uuid.cql",
+        };
+        
         public static IEnumerable<IPEndPoint> EndpointFromString(string str)
         {
             var parts = str.Split(":", StringSplitOptions.RemoveEmptyEntries).Select(p => p.Trim()).ToArray();
@@ -38,23 +51,32 @@ namespace CassandraAPI.Storage
 
         }
 
-        private PreparedStatement insertPetCardStatement;
-        private PreparedStatement deletePetCardStatement;
-        private PreparedStatement getPetCardStatement;
+        private PreparedStatement? insertPetCardStatement;
+        private PreparedStatement? deletePetCardStatement;
+        private PreparedStatement? getPetCardStatement;
 
-        private PreparedStatement deleteSpecificPetImageStatement;
-        private PreparedStatement deleteAllPetImagesStatement;
-        private PreparedStatement getAllPetImagesStatementIncBin;
-        private PreparedStatement getAllPetImagesStatement;
-        private PreparedStatement getParticularPetImageStatement;
-        private PreparedStatement addPetImageStatement;
-
+        private PreparedStatement? deleteSpecificPetOriginalImageStatement;
+        private PreparedStatement? deletePetProcessedImageStatement;
+        private PreparedStatement? deleteAllPetImagesStatement;
+        private PreparedStatement? getAllPetImagesStatement;
+        private PreparedStatement? getParticularOriginalPetImageUuidStatement;
+        private PreparedStatement? getParticularOriginalPetImageStatement;
+        private PreparedStatement? getParticularProcessedPetImageStatement;
+        private PreparedStatement? getPhotoFeatureVectorStatement;
+        private PreparedStatement? addPetOriginalImageStatement;
+        private PreparedStatement? addPetProcessedImageStatement;
+        private PreparedStatement? addPhotoFeaturesStatement;
+        
         private bool connected = false;
         private SemaphoreSlim initSemaphore = new SemaphoreSlim(1);
 
         public CassandraStorage(string keyspace, params string[] contactPoints)
         {
-            this.keyspace = keyspace;
+            if (string.IsNullOrEmpty(keyspace))
+                throw new ArgumentException("keyspace must be non-empty string");
+            if (contactPoints == null || contactPoints.Length == 0)
+                throw new ArgumentException("contactPoints array must contain at lease one element");
+            this.keyspace = keyspace!;
             this.contactPoints = contactPoints;
         }
 
@@ -70,8 +92,17 @@ namespace CassandraAPI.Storage
                 {
                     try
                     {
-                        this.cluster = Cluster.Builder()
-                                 .AddContactPoints(contactPoints)
+                        var builder = Cluster.Builder();                        
+                        try {
+                            IPEndPoint[] ipEndpoints = this.contactPoints.SelectMany(s => EndpointFromString(s)).ToArray();
+                            builder = builder.AddContactPoints(ipEndpoints);                            
+                        }
+                        catch (Exception ex) {
+                            Trace.TraceError($"Failed to construct ip endpoints from strings {this.contactPoints}: {ex}.\nFalling back to plain string endpoint usage");
+                            builder = builder.AddContactPoints(this.contactPoints);
+                        }
+                        
+                        this.cluster = builder
                                  .WithApplicationName("RestAPI")
                                  .WithMaxProtocolVersion(ProtocolVersion.V4)
                                  .WithCompression(CompressionType.LZ4)
@@ -84,7 +115,7 @@ namespace CassandraAPI.Storage
                         throw;
                     }
 
-                    this.session = await cluster.ConnectAsync(this.keyspace);
+                    this.session = await cluster.ConnectAsync();
 
                     Trace.TraceInformation($"Binary protocol version: {this.session.BinaryProtocolVersion}");
                     if (this.session.BinaryProtocolVersion != (int)Cassandra.ProtocolVersion.V4)
@@ -97,16 +128,34 @@ namespace CassandraAPI.Storage
                 }
                 while (!connected);
 
-                this.getPetCardStatement = session.Prepare("SELECT * FROM cards_by_id WHERE namespace = ? AND local_id = ?");
-                this.insertPetCardStatement = session.Prepare("INSERT INTO cards_by_id (namespace, local_id, provenance_url, animal, animal_sex, card_type, event_time,card_creation_time, event_location, contact_info) values (?,?,?,?,?,?,?,?,?,?)");
-                this.deletePetCardStatement = session.Prepare("DELETE FROM cards_by_id WHERE namespace = ? AND local_id = ?");
+                Trace.TraceInformation("Deploying schema...");
+                foreach (var deploymentScript in deploymentScripts) {
+                    var script = await File.ReadAllTextAsync(Path.Combine("Scripts", deploymentScript));
+                    var statement = await this.session.PrepareAsync(script);
+                    statement.SetConsistencyLevel(ConsistencyLevel.All);
+                    await session.ExecuteAsync(statement.Bind());
+                    Trace.TraceInformation($"{deploymentScript} deployed successfully");
+                }
 
-                this.deleteSpecificPetImageStatement = session.Prepare("DELETE FROM images_by_card_id WHERE namespace = ? AND local_id = ? AND image_num = ?");
-                this.deleteAllPetImagesStatement = session.Prepare("DELETE FROM images_by_card_id WHERE namespace = ? AND local_id = ?");
-                this.getAllPetImagesStatementIncBin = session.Prepare("SELECT * FROM images_by_card_id WHERE namespace = ? AND local_id = ?");
-                this.getAllPetImagesStatement = session.Prepare("SELECT namespace,local_id,image_num,detection_confidence,detection_rotation FROM images_by_card_id WHERE namespace = ? AND local_id = ?");
-                this.getParticularPetImageStatement = session.Prepare("SELECT * FROM images_by_card_id WHERE namespace = ? AND local_id = ? AND image_num = ?");
-                this.addPetImageStatement = session.Prepare("INSERT INTO images_by_card_id (namespace, local_id, image_num, annotated_image, annotated_image_type, extracted_pet_image, detection_confidence, detection_rotation) values (?,?,?,?,?,?,?,?)");
+                session.ChangeKeyspace(this.keyspace);
+                Trace.TraceInformation($"Working with keyspace {this.keyspace} from now");
+
+                this.getPetCardStatement = await session.PrepareAsync("SELECT * FROM cards_by_id WHERE namespace = ? AND local_id = ?");
+                this.insertPetCardStatement = await session.PrepareAsync("INSERT INTO cards_by_id (namespace, local_id, provenance_url, animal, animal_sex, card_type, event_time,card_creation_time, event_location, contact_info) values (?,?,?,?,?,?,?,?,?,?) IF NOT EXISTS");
+                this.deletePetCardStatement = await session.PrepareAsync("DELETE FROM cards_by_id WHERE namespace = ? AND local_id = ?");
+
+                this.deleteSpecificPetOriginalImageStatement = await session.PrepareAsync("DELETE FROM images_by_card_id WHERE namespace = ? AND local_id = ? AND image_num = ?");
+                this.deletePetProcessedImageStatement = await session.PrepareAsync("DELETE FROM processed_images_by_image_uuid WHERE image_uuid = ? AND processing_ident = ?");
+                this.deleteAllPetImagesStatement = await session.PrepareAsync("DELETE FROM images_by_card_id WHERE namespace = ? AND local_id = ?");
+                // this.getAllPetImagesStatementIncBin = await session.PrepareAsync("SELECT * FROM images_by_card_id WHERE namespace = ? AND local_id = ?");
+                this.getAllPetImagesStatement = await session.PrepareAsync("SELECT namespace,local_id,image_num,image_uuid FROM images_by_card_id WHERE namespace = ? AND local_id = ?");
+                this.getParticularOriginalPetImageUuidStatement = await session.PrepareAsync("SELECT image_uuid FROM images_by_card_id WHERE namespace = ? AND local_id = ? AND image_num = ?");
+                this.getParticularOriginalPetImageStatement = await session.PrepareAsync("SELECT * FROM images_by_card_id WHERE namespace = ? AND local_id = ? AND image_num = ?");
+                this.getParticularProcessedPetImageStatement = await session.PrepareAsync("SELECT * FROM processed_images_by_image_uuid WHERE image_uuid = ? AND processing_ident = ?");
+                this.addPetOriginalImageStatement = await session.PrepareAsync("INSERT INTO images_by_card_id (namespace, local_id, image_num, image, image_mime_type, image_uuid) values (?,?,?,?,?,?) IF NOT EXISTS");
+                this.addPetProcessedImageStatement = await session.PrepareAsync("INSERT INTO processed_images_by_image_uuid (image_uuid, processing_ident, image, image_mime_type) values (?,?,?,?) IF NOT EXISTS");
+                this.addPhotoFeaturesStatement = await session.PrepareAsync("INSERT INTO image_features_by_image_uuid (image_uuid, feature_ident, feature_vector) values (?,?,?)");
+                this.getPhotoFeatureVectorStatement = await session.PrepareAsync("SELECT feature_vector FROM image_features_by_image_uuid WHERE image_uuid = ? AND feature_ident = ?");
 
                 this.session.UserDefinedTypes.Define(UdtMap.For<Location>("location")
                     .Map(v => v.Address, "address")
@@ -128,6 +177,14 @@ namespace CassandraAPI.Storage
             }
         }
 
+        private static bool checkInsertSuccessful(RowSet? rowSet)
+        {
+            var row = rowSet?.FirstOrDefault();
+            if (row == null)
+                throw new ArgumentException("insert query (with IF NOT EXIST) result is supposed to return rows");
+            return row.GetValue<bool>("[applied]");
+        }
+        
         public static sbyte EncodeAnimal(string animal)
         {
             return animal switch
@@ -191,21 +248,9 @@ namespace CassandraAPI.Storage
         public async Task<bool> SetPetCardAsync(string ns, string localID, PetCard card)
         {
             await EnsureConnectionInitialized();
-            /*
-            namespace text,
-            local_id text,
-            provenance_url text,
-            animal tinyint,
-            animal_sex tinyint,
-            card_type tinyint,
-            event_time tuple<timestamp,text>, -- time moment + provenance
-            card_creation_time timestamp,
-            event_location location,
-            contact_info frozen<contact_info>, -- frozen as contact info contains collections
-            features map<text,frozen<list<double>>>
 
-            */
 
+            // See scripts/create_cards_by_id.cql
             var statement = this.insertPetCardStatement.Bind(
                 ns,
                 localID,
@@ -219,35 +264,49 @@ namespace CassandraAPI.Storage
                 card.ContactInfo
                 );
 
-            await session.ExecuteAsync(statement);
-
-            return true;
+            return checkInsertSuccessful(await session.ExecuteAsync(statement));
         }
 
-        public async Task<bool> AddPetPhotoAsync(string ns, string localID, int imageNum, PetPhoto photo)
+        public async Task<(Guid uuid, bool created)> AddOriginalPetPhotoAsync(string ns, string localID, int imageNum, PetPhoto photo)
         {
             await EnsureConnectionInitialized();
 
-            //namespace text,
-            //local_id text,
-            //image_num tinyint,
-            //annotated_image blob,
-            //annotated_image_type text,
-            //extracted_pet_image blob,
-            //detection_confidence double,
-            //detection_rotation tinyint,
-            var statement = this.addPetImageStatement.Bind(
+            // see Scripts/create_images_by_card_id.cql
+            var uuid = Guid.NewGuid();
+            var statement = this.addPetOriginalImageStatement.Bind(
                 ns,
                 localID,
                 (sbyte)imageNum,
-                photo.AnnotatedImage,
-                photo.AnnotatedImageType,
-                photo.ExtractedImage,
-                photo.DetectionConfidence,
-                (sbyte)photo.DetectionRotation
+                photo.Image,
+                photo.ImageMimeType,
+                uuid
                 );
             var res = await this.session.ExecuteAsync(statement);
-            return true;
+            if(checkInsertSuccessful(res)) {
+                return (uuid, true);
+            }
+            else {
+                // fetching existing UUID
+                var statement2 = this.getParticularOriginalPetImageUuidStatement.Bind(ns, localID, (sbyte)imageNum);
+                var res2 = await this.session.ExecuteAsync(statement2);
+                var row = res2.FirstOrDefault();
+                if (row != null) {
+                    return (row.GetValue<Guid>("image_uuid"), false);
+                } else {
+                    throw new InvalidOperationException($"Failed to create an entry as well as to find existing one for :{ns}/{localID}/{imageNum}");
+                }
+            }            
+        }
+
+        public async Task<bool> AddProcessedPetPhotoAsync(Guid imageUuid, string processingIdent, PetPhoto photo) {
+            // see Scripts/create_processed_images_by_uuid.cql
+            var statement = this.addPetProcessedImageStatement.Bind(
+                imageUuid,
+                processingIdent,
+                photo.Image,
+                photo.ImageMimeType
+                );
+            return checkInsertSuccessful(await this.session.ExecuteAsync(statement));
         }
 
         public async Task<bool> DeletePetCardAsync(string ns, string localID)
@@ -291,62 +350,66 @@ namespace CassandraAPI.Storage
                 return null;
         }
 
-        private static PetPhoto CovertRowToPetPhoto(Row row, bool includeBinData)
+        private static PetOriginalPhoto ConvertRowToPetOrigPhoto(Row row, bool includeBinData)
         {
-            //namespace text,
-            //local_id text,
-            //image_num tinyint,
-            //annotated_image blob,
-            //annotated_image_type text,
-            //extracted_pet_image blob,
-            //detection_confidence double,
-            //detection_rotation tinyint,
-            return new PetPhoto()
-            {
-                ImageNum = row.GetValue<sbyte>("image_num"),
-                AnnotatedImage = includeBinData ? row.GetValue<byte[]>("annotated_image") : null,
-                AnnotatedImageType = includeBinData ? row.GetValue<string>("annotated_image_type") : null,
-                ExtractedImage = includeBinData ? row.GetValue<byte[]>("extracted_pet_image") : null,
-                DetectionConfidence = row.GetValue<double>("detection_confidence"),
-                DetectionRotation = row.GetValue<sbyte>("detection_rotation")
-            };
+            // See Scripts/create_images_by_card_id.cql for column names
+            return new PetOriginalPhoto(
+                row.GetValue<Guid>("image_uuid"),
+                includeBinData ? row.GetValue<byte[]>("image") : null,
+                includeBinData ? row.GetValue<string>("image_mime_type") : null,
+                row.GetValue<sbyte>("image_num")
+                );
         }
 
-        public async IAsyncEnumerable<PetPhoto> GetPetPhotosAsync(string ns, string localID, bool includeBinData)
+        private static PetPhoto ConvertRowToPetProcessedPhoto(Row row, bool includeBinData)
+        {
+            // See Scripts/create_images_by_card_id.cql for column names
+            return new PetPhoto(
+                includeBinData ? row.GetValue<byte[]>("image") : null,
+                includeBinData ? row.GetValue<string>("image_mime_type") : null
+                );
+        }
+
+        public async IAsyncEnumerable<PetOriginalPhoto> ListOriginalPhotosAsync(string ns, string localID)
         {
             await EnsureConnectionInitialized();
 
-            BoundStatement statement =
-                includeBinData ?
-                    this.getAllPetImagesStatementIncBin.Bind(ns, localID)
-                    : this.getAllPetImagesStatement.Bind(ns, localID);
+            BoundStatement statement = this.getAllPetImagesStatement.Bind(ns, localID);            
             var rows = await this.session.ExecuteAsync(statement);
             foreach (var row in rows)
             {
-                yield return CovertRowToPetPhoto(row, includeBinData);
+                yield return ConvertRowToPetOrigPhoto(row, false);
             }
         }
 
-        public async Task<bool> DeletePetPhoto(string ns, string localID, int photoNum = -1)
+        public async Task<bool> DeleteOriginalPetPhoto(string ns, string localID, int photoNum = -1)
         {
             await EnsureConnectionInitialized();
 
             BoundStatement statement = (photoNum == -1) ?
                 (this.deleteAllPetImagesStatement.Bind(ns, localID)) :
-                (this.deleteSpecificPetImageStatement.Bind(ns, localID, photoNum));
+                (this.deleteSpecificPetOriginalImageStatement.Bind(ns, localID, photoNum));
             await this.session.ExecuteAsync(statement);
             return true;
         }
 
-        public async Task<PetPhoto> GetPetPhotoAsync(string ns, string localID, int imageNum)
+        public async Task<bool> DeleteProcessedPhoto(Guid imageUuid, string processingIdent) {
+            await EnsureConnectionInitialized();
+
+            BoundStatement statement = this.deletePetProcessedImageStatement.Bind(imageUuid, processingIdent);
+            await this.session.ExecuteAsync(statement);
+            return true;
+        }
+
+        public async Task<PetPhotoWithGuid> GetOriginalPhotoAsync(string ns, string localID, int imageNum)
         {
             await EnsureConnectionInitialized();
 
-            var statement = this.getParticularPetImageStatement.Bind(ns, localID, (sbyte)imageNum);
+            var statement = this.getParticularOriginalPetImageStatement.Bind(ns, localID, (sbyte)imageNum);
             var row = (await this.session.ExecuteAsync(statement)).FirstOrDefault();
             if (row != null)
             {
-                PetPhoto photo = CovertRowToPetPhoto(row, true);
+                PetOriginalPhoto photo = ConvertRowToPetOrigPhoto(row, true);
                 return photo;
             }
             else
@@ -355,7 +418,23 @@ namespace CassandraAPI.Storage
             }
         }
 
-        public async Task<bool> SetFeatureVectorAsync(string ns, string localID, string featuredIdent, double[] features)
+        public async Task<PetPhoto> GetProcessedPetPhotoAsync(Guid imageUuid, string processingIdent) {
+            await EnsureConnectionInitialized();
+            var statement = this.getParticularProcessedPetImageStatement.Bind(imageUuid, processingIdent);
+            var row = (await this.session.ExecuteAsync(statement)).FirstOrDefault();
+            if (row != null)
+            {
+                PetPhoto photo = ConvertRowToPetProcessedPhoto(row, true);
+                return photo;
+            }
+            else
+            {
+                return null;
+            }
+
+        }
+
+        public async Task<bool> SetCardFeatureVectorAsync(string ns, string localID, string featuredIdent, double[] features)
         {
             await EnsureConnectionInitialized();
 
@@ -365,6 +444,27 @@ namespace CassandraAPI.Storage
                 newDict, ns, localID);
             await this.session.ExecuteAsync(statement);
             return true;
+        }
+
+        public async Task<bool> SetPhotoFeatureVectorAsync(Guid imageUuid, string featuresIdent, double[] features)
+        {
+            await EnsureConnectionInitialized();
+
+            var statement = this.addPhotoFeaturesStatement.Bind(imageUuid, featuresIdent, features);
+            await this.session.ExecuteAsync(statement);
+
+            return true;
+        }
+
+        public async Task<double[]?> GetPhotoFeatures(Guid imageUuid, string featuresIdent)
+        {
+            await EnsureConnectionInitialized();
+
+            var statement = this.getPhotoFeatureVectorStatement.Bind(imageUuid, featuresIdent);
+            var res = await this.session.ExecuteAsync(statement);
+
+            return res.FirstOrDefault()?.GetValue<double[]>("feature_vector");
+
         }
     }
 }

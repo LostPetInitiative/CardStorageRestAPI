@@ -3,13 +3,13 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
-using CassandraAPI.Storage;
+using PatCardStorageAPI.Storage;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
 
 // For more information on enabling Web API for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
 
-namespace CassandraAPI.Controllers
+namespace PatCardStorageAPI.Controllers
 {
     [Route("[controller]")]
     [ApiController]
@@ -63,13 +63,14 @@ namespace CassandraAPI.Controllers
             }
         }
 
+        
         [HttpPut("{ns}/{localID}/features/{featuresIdent}")]
         public async Task<IActionResult> PutFeatures(string ns, string localID, string featuresIdent, [FromBody] JsonPoco.FeaturesPOCO features)
         {
             try
             {
                 Trace.TraceInformation($"Setting features {featuresIdent} for {ns}/{localID}");
-                await this.storage.SetFeatureVectorAsync(ns, localID, featuresIdent, features.Features);
+                await this.storage.SetCardFeatureVectorAsync(ns, localID, featuresIdent, features.Features);
                 Trace.TraceInformation($"Successfully set features {featuresIdent} for {ns}/{localID}");
                 return Ok();
             }
@@ -79,9 +80,13 @@ namespace CassandraAPI.Controllers
                 return StatusCode(500, err.ToString());
             }
         }
+        
 
         // PUT <PetCardsController>
         [HttpPut("{ns}/{localID}")]
+        [ProducesResponseType(StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult> Put(string ns, string localID, [FromBody] PetCard value)
         {
             try
@@ -91,12 +96,12 @@ namespace CassandraAPI.Controllers
                 if (res)
                 {
                     Trace.TraceInformation($"Stored {ns}/{localID}");
-                    return Ok();
+                    return CreatedAtAction(nameof(Get),new { ns= ns, localID = localID },null);
                 }
                 else
                 {
-                    Trace.TraceWarning($"Error while storing {ns}/{localID}");
-                    return StatusCode(500);
+                    Trace.TraceWarning($"Card {ns}/{localID} already exists");
+                    return Conflict();
                 }
             }
             catch (Exception err)
