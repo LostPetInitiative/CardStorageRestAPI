@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
+using CardStorageRestAPI;
 using Cassandra;
 using Cassandra.Mapping;
 using ISession = Cassandra.ISession;
@@ -245,15 +246,15 @@ namespace PatCardStorageAPI.Storage
             };
         }
 
-        public async Task<bool> SetPetCardAsync(string ns, string localID, PetCard card)
+        public async Task<bool> SetPetCardAsync(AsciiIdentifier ns, AsciiIdentifier localID, PetCard card)
         {
             await EnsureConnectionInitialized();
 
 
             // See scripts/create_cards_by_id.cql
             var statement = this.insertPetCardStatement.Bind(
-                ns,
-                localID,
+                ns.ToString(),
+                localID.ToString(),
                 card.ProvenanceURL,
                 EncodeAnimal(card.Animal),
                 EncodePetSex(card.AnimalSex),
@@ -267,15 +268,15 @@ namespace PatCardStorageAPI.Storage
             return checkInsertSuccessful(await session.ExecuteAsync(statement));
         }
 
-        public async Task<(Guid uuid, bool created)> AddOriginalPetPhotoAsync(string ns, string localID, int imageNum, PetPhoto photo)
+        public async Task<(Guid uuid, bool created)> AddOriginalPetPhotoAsync(AsciiIdentifier ns, AsciiIdentifier localID, int imageNum, PetPhoto photo)
         {
             await EnsureConnectionInitialized();
 
             // see Scripts/create_images_by_card_id.cql
             var uuid = Guid.NewGuid();
             var statement = this.addPetOriginalImageStatement.Bind(
-                ns,
-                localID,
+                ns.ToString(),
+                localID.ToString(),
                 (sbyte)imageNum,
                 photo.Image,
                 photo.ImageMimeType,
@@ -287,7 +288,7 @@ namespace PatCardStorageAPI.Storage
             }
             else {
                 // fetching existing UUID
-                var statement2 = this.getParticularOriginalPetImageUuidStatement.Bind(ns, localID, (sbyte)imageNum);
+                var statement2 = this.getParticularOriginalPetImageUuidStatement.Bind(ns.ToString(), localID.ToString(), (sbyte)imageNum);
                 var res2 = await this.session.ExecuteAsync(statement2);
                 var row = res2.FirstOrDefault();
                 if (row != null) {
@@ -298,33 +299,33 @@ namespace PatCardStorageAPI.Storage
             }            
         }
 
-        public async Task<bool> AddProcessedPetPhotoAsync(Guid imageUuid, string processingIdent, PetPhoto photo) {
+        public async Task<bool> AddProcessedPetPhotoAsync(Guid imageUuid, AsciiIdentifier processingIdent, PetPhoto photo) {
             // see Scripts/create_processed_images_by_uuid.cql
             var statement = this.addPetProcessedImageStatement.Bind(
                 imageUuid,
-                processingIdent,
+                processingIdent.ToString(),
                 photo.Image,
                 photo.ImageMimeType
                 );
             return checkInsertSuccessful(await this.session.ExecuteAsync(statement));
         }
 
-        public async Task<bool> DeletePetCardAsync(string ns, string localID)
+        public async Task<bool> DeletePetCardAsync(AsciiIdentifier ns, AsciiIdentifier localID)
         {
             await EnsureConnectionInitialized();
 
-            var statement = this.deletePetCardStatement.Bind(ns, localID);
+            var statement = this.deletePetCardStatement.Bind(ns.ToString(), localID.ToString());
 
             await session.ExecuteAsync(statement);
 
             return true;
         }
 
-        public async Task<PetCard> GetPetCardAsync(string ns, string localID)
+        public async Task<PetCard> GetPetCardAsync(AsciiIdentifier ns, AsciiIdentifier localID)
         {
             await EnsureConnectionInitialized();
 
-            var statement = this.getPetCardStatement.Bind(ns, localID);
+            var statement = this.getPetCardStatement.Bind(ns.ToString(), localID.ToString());
             var rows = await session.ExecuteAsync(statement);
             Row extracted = rows.FirstOrDefault();
             if (extracted != null)
@@ -370,11 +371,11 @@ namespace PatCardStorageAPI.Storage
                 );
         }
 
-        public async IAsyncEnumerable<PetOriginalPhoto> ListOriginalPhotosAsync(string ns, string localID)
+        public async IAsyncEnumerable<PetOriginalPhoto> ListOriginalPhotosAsync(AsciiIdentifier ns, AsciiIdentifier localID)
         {
             await EnsureConnectionInitialized();
 
-            BoundStatement statement = this.getAllPetImagesStatement.Bind(ns, localID);            
+            BoundStatement statement = this.getAllPetImagesStatement.Bind(ns.ToString(), localID.ToString());            
             var rows = await this.session.ExecuteAsync(statement);
             foreach (var row in rows)
             {
@@ -382,30 +383,30 @@ namespace PatCardStorageAPI.Storage
             }
         }
 
-        public async Task<bool> DeleteOriginalPetPhoto(string ns, string localID, int photoNum = -1)
+        public async Task<bool> DeleteOriginalPetPhoto(AsciiIdentifier ns, AsciiIdentifier localID, int photoNum = -1)
         {
             await EnsureConnectionInitialized();
 
             BoundStatement statement = (photoNum == -1) ?
-                (this.deleteAllPetImagesStatement.Bind(ns, localID)) :
-                (this.deleteSpecificPetOriginalImageStatement.Bind(ns, localID, photoNum));
+                (this.deleteAllPetImagesStatement.Bind(ns.ToString(), localID.ToString())) :
+                (this.deleteSpecificPetOriginalImageStatement.Bind(ns.ToString(), localID.ToString(), photoNum));
             await this.session.ExecuteAsync(statement);
             return true;
         }
 
-        public async Task<bool> DeleteProcessedPhoto(Guid imageUuid, string processingIdent) {
+        public async Task<bool> DeleteProcessedPhoto(Guid imageUuid, AsciiIdentifier processingIdent) {
             await EnsureConnectionInitialized();
 
-            BoundStatement statement = this.deletePetProcessedImageStatement.Bind(imageUuid, processingIdent);
+            BoundStatement statement = this.deletePetProcessedImageStatement.Bind(imageUuid, processingIdent.ToString());
             await this.session.ExecuteAsync(statement);
             return true;
         }
 
-        public async Task<PetPhotoWithGuid> GetOriginalPhotoAsync(string ns, string localID, int imageNum)
+        public async Task<PetPhotoWithGuid> GetOriginalPhotoAsync(AsciiIdentifier ns, AsciiIdentifier localID, int imageNum)
         {
             await EnsureConnectionInitialized();
 
-            var statement = this.getParticularOriginalPetImageStatement.Bind(ns, localID, (sbyte)imageNum);
+            var statement = this.getParticularOriginalPetImageStatement.Bind(ns.ToString(), localID.ToString(), (sbyte)imageNum);
             var row = (await this.session.ExecuteAsync(statement)).FirstOrDefault();
             if (row != null)
             {
@@ -418,9 +419,9 @@ namespace PatCardStorageAPI.Storage
             }
         }
 
-        public async Task<PetPhoto> GetProcessedPetPhotoAsync(Guid imageUuid, string processingIdent) {
+        public async Task<PetPhoto> GetProcessedPetPhotoAsync(Guid imageUuid, AsciiIdentifier processingIdent) {
             await EnsureConnectionInitialized();
-            var statement = this.getParticularProcessedPetImageStatement.Bind(imageUuid, processingIdent);
+            var statement = this.getParticularProcessedPetImageStatement.Bind(imageUuid, processingIdent.ToString());
             var row = (await this.session.ExecuteAsync(statement)).FirstOrDefault();
             if (row != null)
             {
@@ -434,33 +435,33 @@ namespace PatCardStorageAPI.Storage
 
         }
 
-        public async Task<bool> SetCardFeatureVectorAsync(string ns, string localID, string featuredIdent, double[] features)
+        public async Task<bool> SetCardFeatureVectorAsync(AsciiIdentifier ns, AsciiIdentifier localID, AsciiIdentifier featuredIdent, double[] features)
         {
             await EnsureConnectionInitialized();
 
             var newDict = new Dictionary<string, IEnumerable<double>>();
-            newDict.Add(featuredIdent, features);
+            newDict.Add(featuredIdent.ToString(), features);
             var statement = new SimpleStatement($"UPDATE cards_by_id SET features = features + ? WHERE namespace = ? AND local_id = ?",
-                newDict, ns, localID);
+                newDict, ns.ToString(), localID.ToString());
             await this.session.ExecuteAsync(statement);
             return true;
         }
 
-        public async Task<bool> SetPhotoFeatureVectorAsync(Guid imageUuid, string featuresIdent, double[] features)
+        public async Task<bool> SetPhotoFeatureVectorAsync(Guid imageUuid, AsciiIdentifier featuresIdent, double[] features)
         {
             await EnsureConnectionInitialized();
 
-            var statement = this.addPhotoFeaturesStatement.Bind(imageUuid, featuresIdent, features);
+            var statement = this.addPhotoFeaturesStatement.Bind(imageUuid, featuresIdent.ToString(), features);
             await this.session.ExecuteAsync(statement);
 
             return true;
         }
 
-        public async Task<double[]?> GetPhotoFeatures(Guid imageUuid, string featuresIdent)
+        public async Task<double[]?> GetPhotoFeatures(Guid imageUuid, AsciiIdentifier featuresIdent)
         {
             await EnsureConnectionInitialized();
 
-            var statement = this.getPhotoFeatureVectorStatement.Bind(imageUuid, featuresIdent);
+            var statement = this.getPhotoFeatureVectorStatement.Bind(imageUuid, featuresIdent.ToString());
             var res = await this.session.ExecuteAsync(statement);
 
             return res.FirstOrDefault()?.GetValue<double[]>("feature_vector");
