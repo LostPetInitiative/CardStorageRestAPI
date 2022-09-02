@@ -150,7 +150,7 @@ namespace PatCardStorageAPI.Controllers
                     if(created)
                     {
                         Trace.TraceInformation($"successfully added photo {imNum} for {ns}/{localID}. UUID: {uuid}");
-                        var routeValues = new { ns = ns, localID = localID, imNum = imNum };
+                        var routeValues = new { nsStr = ns.ToString(), localIDstr = localID.ToString(), imNum = imNum };
                         return CreatedAtAction(nameof(GetImage), routeValues, uuid);
                     }
                     else
@@ -200,7 +200,7 @@ namespace PatCardStorageAPI.Controllers
                     if (created)
                     {
                         Trace.TraceInformation($"successfully added processed ({processingIdent}) photo {imNum} for {ns}/{localID}. UUID: {orig.Uuid}");
-                        var routeValues = new { ns = ns, localID = localID, imNum = imNum, preferableProcessingsStr = processingIdent };
+                        var routeValues = new { nsStr = ns.ToString(), localIDstr = localID.ToString(), imNum = imNum, preferableProcessingsStr = processingIdent.ToString() };
                         return CreatedAtAction(nameof(GetImage), routeValues, orig.Uuid);
                     }
                     else

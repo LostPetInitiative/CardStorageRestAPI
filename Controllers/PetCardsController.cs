@@ -126,7 +126,7 @@ namespace PatCardStorageAPI.Controllers
                     if (res)
                     {
                         Trace.TraceInformation($"Stored {ns}/{localID}");
-                        return CreatedAtAction(nameof(Get),new { ns= ns, localID = localID },null);
+                        return CreatedAtAction(nameof(Get),new { nsStr = ns.ToString(), localIDstr = localID.ToString() },null);
                     }
                     else
                     {
